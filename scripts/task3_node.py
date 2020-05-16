@@ -50,12 +50,15 @@ class ImageDetectionAndTracking:
         
         if(len(rects) > 0):
             print("Human detected...")
+            self.human_detection_count = self.human_detection_count+1
             #Publishing the orientation data to the pursuer
 
             #Keeping track of last 10 locations where the evader was detected
             if(len(self.humanPositionArrayX) < 10):
-                self.humanPositionArrayX.append(self.msg_detected_human_pose.pose.pose.position.x)
-                self.humanPositionArrayY.append(self.msg_detected_human_pose.pose.pose.position.y)
+                if(self.humanPositionArrayX.count(self.msg_detected_human_pose.pose.pose.position.x) == 0 
+                    or self.humanPositionArrayY.count(self.msg_detected_human_pose.pose.pose.position.y) == 0):
+                    self.humanPositionArrayX.append(self.msg_detected_human_pose.pose.pose.position.x)
+                    self.humanPositionArrayY.append(self.msg_detected_human_pose.pose.pose.position.y)
                 
                 # For the first instance alone initiating the pursuer.This is based on assumption that a human will be visible at first.
                 # We need to handle the case, If no human detected in the inital phase.
@@ -74,14 +77,18 @@ class ImageDetectionAndTracking:
     #pursuer callback
     def purseur_pose_callback(self,data):
         if data.status.status == 3:
-            msg_to_track_evader.header.stamp = rospy.Time.now()
-            msg_to_track_evader.pose.position.x = self.humanPositionArrayX.pop(0)
-            msg_to_track_evader.pose.position.y = self.humanPositionArrayY.pop(0)
-            pub.publish(msg_to_track_evader)
-            print("Shifting to the next location...", len(self.humanPositionArrayX))
+            if(len(self.humanPositionArrayX)>0):
+                msg_to_track_evader.header.stamp = rospy.Time.now()
+                msg_to_track_evader.pose.position.x = self.humanPositionArrayX.pop(0)
+                msg_to_track_evader.pose.position.y = self.humanPositionArrayY.pop(0)
+                pub.publish(msg_to_track_evader)
+                print("Shifting to the next location...", len(self.humanPositionArrayX))
         else:
             print("Still Pursuing the given goal")
 
+    def timer_callback(self, event):
+        print("Human Detection count", self.human_detection_count)
+        rospy.signal_shutdown("5 Minutes elapsed. Terminating...")
 
     #server to handle client request to draw the initials
     def __init__(self):
@@ -90,11 +97,13 @@ class ImageDetectionAndTracking:
         self.humanPositionArrayX=[]
         self.humanPositionArrayY=[]
         self.currentGoal=0
+        self.human_detection_count = 0
         rospy.Subscriber("/tb3_0/camera/rgb/image_raw", Image, self.callback_for_every_pose, queue_size=10)
         rospy.Subscriber("/tb3_1/amcl_pose", PoseWithCovarianceStamped, self.evader_pose_callback, queue_size=10)
         rospy.Subscriber("/tb3_0/move_base/result",MoveBaseActionResult, self.purseur_pose_callback, queue_size=10)
+        rospy.Timer(rospy.Duration(100), self.timer_callback)
         rospy.spin()
     
 if __name__ == '__main__':
-    print('Server up and running to receive data...')
+    print('Server up and running...')
     detectionClass =  ImageDetectionAndTracking()
